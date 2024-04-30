@@ -18,7 +18,7 @@ func NewTokenRepo(db *mongo.Database) repository.User {
 	}
 }
 
-func (r *tokenRepo) SaveRefreshToken(ctx context.Context, token string, guid string) error {
+func (r *tokenRepo) SaveRefreshToken(ctx context.Context, token []byte, guid string) error {
 
 	_, err := r.db.Collection("tokens").UpdateOne(ctx, bson.M{
 		"guid": guid,
