@@ -18,25 +18,26 @@ type Service struct {
 	userRepo repository.User
 }
 
-func NewToken(log *logrus.Logger, userRepo repository.User) *Service {
+func NewService(log *logrus.Logger, userRepo repository.User) *Service {
 	return &Service{
 		log:      log,
 		userRepo: userRepo,
 	}
 }
 
-func(s *Service) hashRefreshToken(token string) ([]byte, error) {
+func (s *Service) HashRefreshToken(token string) ([]byte, error) {
 	hashedRefreshToken, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.DefaultCost)
 	if err != nil {
+		s.log.Errorln("Не удалось захэшировать refresh token")
 		return nil, err
 	}
 
 	return hashedRefreshToken, nil
 }
 
-func (s *Service) GenerateTokens(guide string) (token.Token, error) {
+func (s *Service) GenerateTokens(guid string) (token.Token, error) {
 	accessTokenClaims := token.Claims{
-		GUID: guide,
+		GUID: guid,
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().Add(time.Minute * 15).Unix(),
 		},
@@ -45,24 +46,89 @@ func (s *Service) GenerateTokens(guide string) (token.Token, error) {
 	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS512, accessTokenClaims)
 	accessTokenString, err := accessToken.SignedString(token.JwtSecret)
 	if err != nil {
+		s.log.Errorln("Не удалось создать jwt token", err)
 		return token.Token{}, err
 	}
 
-	refreshTokenBytes := make([]byte, 64)
+	refreshTokenBytes := make([]byte, 32)
 	_, err = rand.Read(refreshTokenBytes)
 	if err != nil {
+		s.log.Errorln("Не удалось создать refresh token", err)
 		return token.Token{}, err
 	}
 
 	refreshToken := base64.StdEncoding.EncodeToString(refreshTokenBytes)
 
-	hashedRefreshToken,err := s.hashRefreshToken(refreshToken)
-	if err != nil{
-		return token.Token{},err
+	hashedRefreshToken, err := s.HashRefreshToken(refreshToken)
+	if err != nil {
+		s.log.Errorln("Не удалось захэшировать refresh token", err)
+		return token.Token{}, err
 	}
 
+	err = s.userRepo.SaveRefreshToken(context.Background(), hashedRefreshToken, guid)
 
-	s.userRepo.SaveRefreshToken(context.Background(),hashedRefreshToken,guide)
+	if err != nil {
+		s.log.Errorln("Не удалось сохранить токены", err)
+		return token.Token{}, err
+	}
+
+	return token.Token{
+		AccessToken:  accessTokenString,
+		RefreshToken: refreshToken,
+	}, nil
+
+}
+
+func (s *Service) UpdateTokens(ctx context.Context, guid string, reftoken string) (token.Token, error) {
+
+	hrefTok, err := s.userRepo.GetRefreshToken(ctx, guid)
+	if err != nil {
+		s.log.Errorln("не удалось получить refresh token", err)
+		return token.Token{}, err
+	}
+
+	err = bcrypt.CompareHashAndPassword(hrefTok, []byte(reftoken))
+
+	if err != nil {
+		s.log.Errorln("Не удалось сравнить", err)
+		return token.Token{}, err
+	}
+
+	accessTokenClaims := token.Claims{
+		GUID: guid,
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: time.Now().Add(time.Minute * 15).Unix(),
+		},
+	}
+
+	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS512, accessTokenClaims)
+	accessTokenString, err := accessToken.SignedString(token.JwtSecret)
+	if err != nil {
+		s.log.Errorln("Не удалось создать jwt token", err)
+		return token.Token{}, err
+	}
+
+	refreshTokenBytes := make([]byte, 32)
+	_, err = rand.Read(refreshTokenBytes)
+	if err != nil {
+		s.log.Errorln("Не удалось создать refresh token", err)
+		return token.Token{}, err
+	}
+
+	refreshToken := base64.StdEncoding.EncodeToString(refreshTokenBytes)
+
+	hashedRefreshToken, err := s.HashRefreshToken(refreshToken)
+	if err != nil {
+		s.log.Errorln("Не удалось захэшировать refresh token", err)
+		return token.Token{}, err
+	}
+
+	err = s.userRepo.UpdateRefreshToken(ctx, guid, hashedRefreshToken)
+
+	if err != nil {
+		s.log.Errorln("Не удалось обновить", err)
+		return token.Token{}, err
+	}
 
 	return token.Token{
 		AccessToken:  accessTokenString,

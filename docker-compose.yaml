@@ -1,0 +1,16 @@
+
+services:
+  mongodb:
+    image: mongo
+    restart: always
+    ports:
+      - "27017:27017"
+  web:
+    image: "auth"
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    depends_on:
+      - mongodb
+    ports:
+     - 127.0.0.1:9000:9000

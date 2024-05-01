@@ -1,3 +1,3 @@
 package token
 
-var JwtSecret = []byte("something")
+var JwtSecret = []byte("somethingiausyduiaysdfiuhasfhai")
